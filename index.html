@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font: 13px Helvetica, Arial; }
+      form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
+      form input { border: 0; padding: 10px; width: 90%; margin-right: 0.5%; }
+      form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages li { padding: 5px 10px; }
+      #messages li:nth-child(odd) { background: #eee; }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+    
+  </head>
+  <body>
+    <ul id="messages"></ul>
+    <button id="connectBtn">
+      Connect to serial
+    </button>
+  </body>
+  <script>
+    let port, reader, writer;
+    const baudRate = 57600;
+
+    function unit8toHex(a) { 
+      return Array.prototype.map.call(a, x => ('00' + x.toString(16)).slice(-2)).join('');
+    }
+
+    $(function () {
+      var socket = io();
+      $('#connectBtn').click(function(e){
+        e.preventDefault(); // prevents page reloading
+        
+        window.navigator.serial.requestPort({})
+        .then(serialPort => {
+          port = serialPort;
+          return port.open({ baudRate });
+        })
+        .then(() => writer = port.writable.getWriter())
+        .then(() => reader = port.readable.getReader())
+        .then(async () => {
+          while (port.readable.locked) {
+            try {
+              const { value, done } = await reader.read();
+              if (done) {
+                break;
+              }
+              console.log('serial data', value, unit8toHex(value))
+              socket.emit('fromserialhex', unit8toHex(value));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        })
+        .catch(error => {
+          console.log('error connecting', error);
+        });
+
+
+        return false;
+      });
+      socket.on('fromserialhex', function(msg){
+        // $('#messages').append($('<li>from ').text(msg));
+          console.log('fromserialhex', msg);
+      });
+      socket.on('toserialhex', function(msg){
+        const bytes = new Uint8Array(Math.ceil(msg.length / 2));
+        for (var i = 0; i < bytes.length; i++) bytes[i] = parseInt(msg.substr(i * 2, 2), 16);
+        console.log('toserialhex', msg);
+        // $('#messages').append($('<li>to ').text(msg));
+        writer.write(bytes);
+      });
+    });
+  </script>
+</html>
